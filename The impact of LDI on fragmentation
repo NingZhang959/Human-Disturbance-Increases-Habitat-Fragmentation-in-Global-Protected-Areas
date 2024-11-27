@@ -1,0 +1,62 @@
+# Load the required libraries
+library(dplyr)
+
+# Read the data from CSV file
+data <- read.csv("....csv")
+
+
+# Split the data into groups based on the values in the fourth column
+grouped_list <- split(data, data[[4]])
+
+# Define the mapping table to map combinations of column 2 and 3 intervals to results
+mapping <- data.frame(
+  col2_interval = rep(1:3, each = 3),  # Create intervals for column 2 (1, 2, 3)
+  col3_interval = rep(1:3, times = 3),  # Create intervals for column 3 (1, 2, 3)
+  result = c(1, 4, 7, 2, 5, 8, 3, 6, 9)  # Map the combinations to a result
+)
+
+# Define a function to assign intervals to each group based on quantiles and map the result
+process_group <- function(group_data, quantiles) {
+  # Create intervals for column 2 and column 3 based on quantiles
+  group_data <- group_data %>%
+    mutate(
+      col2_interval = case_when(
+        group_data[[2]] <= quantiles$Second_Column_33 ~ 1,  # First interval for column 2
+        group_data[[2]] <= quantiles$Second_Column_66 ~ 2,  # Second interval for column 2
+        TRUE ~ 3  # Third interval for column 2
+      ),
+      col3_interval = case_when(
+        group_data[[3]] <= quantiles$Third_Column_33 ~ 1,  # First interval for column 3
+        group_data[[3]] <= quantiles$Third_Column_66 ~ 2,  # Second interval for column 3
+        TRUE ~ 3  # Third interval for column 3
+      )
+    )
+  
+  # Join the mapped result using the interval combinations
+  group_data <- group_data %>%
+    left_join(mapping, by = c("col2_interval", "col3_interval"))
+  
+  return(group_data)  # Return the modified group data
+}
+
+# Apply the `process_group` function to each group
+result_list <- lapply(names(grouped_list), function(group_name) {
+  group_data <- grouped_list[[group_name]]  # Get data for each group
+  
+  # Calculate quantiles for the second and third columns of the current group
+  quantiles <- list(
+    Second_Column_33 = quantile(group_data[[2]], 0.3333, na.rm = TRUE),  # 33rd percentile for column 2
+    Second_Column_66 = quantile(group_data[[2]], 0.6666, na.rm = TRUE),  # 66th percentile for column 2
+    Third_Column_33 = quantile(group_data[[3]], 0.3333, na.rm = TRUE),  # 33rd percentile for column 3
+    Third_Column_66 = quantile(group_data[[3]], 0.6666, na.rm = TRUE)   # 66th percentile for column 3
+  )
+  
+  # Process the group data and map the result
+  process_group(group_data, quantiles)
+})
+
+# Combine all the processed group results into one final data frame
+final_result <- bind_rows(result_list)
+
+# Save the final result to a new CSV file
+write.csv(final_result, "final_result.csv", row.names = FALSE)
