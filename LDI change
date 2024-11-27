@@ -1,0 +1,85 @@
+# Read the data from the specified CSV file
+data <- read_csv("data_with_results.csv")  # Please replace with your CSV file path
+
+# Convert the BIOME_NAME and result columns to factors, maintaining the original order
+# Define custom order for BIOME_NAME
+biome_order <- c("BFT", "DXS", "FGS", "MFWS", "MG", "MGS", "TBMF", "TCF", "TGSS", "TSCF", "TSDBF", "TSGSS", "TSMBF", "TD")
+
+# Set the BIOME_NAME column as a factor with the custom order
+data$BIOME_NAME <- factor(data$BIOME_NAME, levels = biome_order)
+
+# Sort the data by BIOME_NAME
+data <- data[order(data$BIOME_NAME), ]
+
+# Summarize the data: count the number of occurrences for each CONTINENT and result combination
+summary_table <- data %>%
+  group_by(CONTINENT, result) %>%
+  summarise(count = n()) %>%
+  ungroup()
+
+# Calculate the total count for each continent
+total_counts <- summary_table %>%
+  group_by(CONTINENT) %>%
+  summarise(total = sum(count))
+
+# Calculate the percentage for each continent and result combination
+summary_table <- summary_table %>%
+  left_join(total_counts, by = "CONTINENT") %>%
+  mutate(percent = count / total * 100)
+
+# Summarize the data for all results without continent grouping, count the occurrences of each result
+summary_table <- data %>%
+  group_by(result) %>%
+  summarise(count = n()) %>%
+  ungroup()
+
+# Calculate the total count for all results
+total_count <- sum(summary_table$count)
+
+# Calculate the percentage for each result
+summary_table <- summary_table %>%
+  mutate(percent = count / total_count * 100)
+
+# Print the summary table
+print(summary_table)
+
+# Define custom colors (using RGB and HSV models)
+custom_colors <- c(
+  rgb(38, 115, 0, maxColorValue = 255),                    # Color 1: RGB
+  hsv(h = 86/360, s = 1, v = 0.77),                        # Color 2: HSV
+  hsv(h = 73/360, s = 1, v = 0.88),                        # Color 3: HSV
+  hsv(h = 60/360, s = 1, v = 1),                           # Color 4: HSV
+  hsv(h = 40/360, s = 1, v = 1),                           # Color 5: HSV
+  hsv(h = 20/360, s = 1, v = 1),                           # Color 6: HSV
+  hsv(h = 0/360, s = 1, v = 1),                            # Color 7: HSV
+  hsv(h = 284/360, s = 1, v = 0.84),                       # Color 8: HSV
+  hsv(h = 240/360, s = 1, v = 1)                           # Color 9: HSV
+)
+
+# Create a stacked bar plot, removing the legend
+ggplot(summary_table, aes(x = BIOME_NAME, y = percent, fill = as.factor(result))) +
+  geom_bar(stat = "identity", width = 0.7) +  # Use bars to represent the data
+  scale_fill_manual(values = custom_colors) +  # Apply custom colors to the bars
+  labs(
+    x = "Biome",  # Label for the x-axis
+    y = "LDI and PD (%)"  # Label for the y-axis
+  ) +
+  theme_minimal() +  # Use a minimal theme for the plot
+  theme(
+    text = element_text(size = 8, face = "bold", family = "Times New Roman"),  # Set font for all text
+    axis.title = element_text(size = 8, face = "bold", family = "Times New Roman"),  # Axis titles in bold
+    axis.title.y = element_text(size = 8, face = "bold", family = "Times New Roman"),  # Y-axis title in bold
+    axis.text.x = element_text(size = 8, face = "bold", angle = 45, family = "Times New Roman"),  # X-axis labels with rotated angle
+    axis.text.y = element_text(size = 8, face = "bold", family = "Times New Roman"),  # Y-axis labels in bold
+    legend.position = "none"  # Remove the legend from the plot
+  )
+
+# Save the plot as a PNG image with specified width, height, and resolution
+ggsave(filename = "biome_PD.png", 
+       plot = last_plot(),  # Save the most recent plot
+       width = 4,           # Adjust the image width (in inches)
+       height = 2,          # Adjust the image height (in inches)
+       dpi = 300,           # Set the resolution to 300 dpi
+       units = "in",        # Units for width and height (in inches)
+       bg = "white"         # Set background color to white
+)
