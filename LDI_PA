@@ -1,0 +1,121 @@
+# Define the folder path where CSV files are located
+folder_path <- "E:..."  # Replace with your actual folder path
+
+# List all CSV files in the folder
+files <- list.files(path = folder_path, pattern = "\\.csv$", full.names = TRUE)
+
+# Initialize an empty data frame to store the final results
+final_result <- data.frame()
+
+# Loop through each CSV file in the folder
+for (file in files) {
+  # Read the current CSV file
+  data <- read.csv(file, check.names = FALSE)
+  
+  # Find all column names that start with "LDI_"
+  ldi_columns <- grep("^LDI_", names(data), value = TRUE)
+  
+  # Get all unique continent types (CO)
+  co_types <- unique(data$CONTINENT)
+  
+  # Loop through each continent type (CO)
+  for (co in co_types) {
+    # Filter data for the current continent
+    co_data <- data[data$CONTINENT == co, ]
+    co_data <- data  # This line seems redundant and can be removed
+    
+    # Loop through each LDI column
+    for (ldi_col in ldi_columns) {
+      # Extract the corresponding statistics column name, e.g., LDI_1 corresponds to column 1
+      col_num <- sub("LDI_", "", ldi_col)  # Extract the numeric part of the LDI column
+      stat_col <- paste0(col_num)  # Construct the corresponding statistic column name
+      
+      # Check if the corresponding statistics column exists
+      if (stat_col %in% names(co_data)) {
+        # Filter data where LDI value is positive
+        filtered_data <- co_data[co_data[[ldi_col]] > 0, ]
+        # Get the values from the corresponding statistics column and convert to numeric
+        values <- filtered_data[[stat_col]]
+       
+        # Count the number of positive, negative, and zero values
+        pos_count <- sum(values > 0, na.rm = TRUE)
+        neg_count <- sum(values < 0, na.rm = TRUE)
+        zero_count <- sum(values == 0, na.rm = TRUE)
+        total_count <- pos_count + neg_count + zero_count
+        
+        # Calculate the percentage of positive, negative, and zero values
+        pos_percent <- ifelse(total_count > 0, (pos_count / total_count) * 100, 0)
+        neg_percent <- ifelse(total_count > 0, (neg_count / total_count) * 100, 0)
+        zero_percent <- ifelse(total_count > 0, (zero_count / total_count) * 100, 0)
+        
+        # Create a data frame to store the statistics
+        stats <- data.frame(
+          LDI_Column = ldi_col,
+          Corresponding_Column = stat_col,
+          Positive = pos_count,
+          Negative = neg_count,
+          Zero = zero_count,
+          Positive_Percent = pos_percent,
+          Negative_Percent = neg_percent,
+          Zero_Percent = zero_percent,
+          CO_Type = co,
+          File = basename(file),
+          stringsAsFactors = FALSE
+        )
+        
+        # Append the statistics to the final result data frame
+        final_result <- rbind(final_result, stats)
+      } else {
+        # If the corresponding statistics column is missing, output a warning
+        warning(paste("Column", stat_col, "not found in file", basename(file)))
+      }
+    }
+  }
+}
+
+# Output the final result data frame
+print(final_result)
+warnings()  # Print any warnings that occurred during processing
+
+# Save the result to a CSV file
+write.csv(final_result, file = "LDI_Statistics_global_Types.csv", row.names = FALSE)
+
+# Read the saved CSV file for further processing
+data <- read.csv("LDI_Statistics_global_Types.csv")
+
+# Filter the data for rows where File column is "PR.csv"
+filtered_data <- data %>% filter(File == "PR.csv")
+
+# Convert the "Corresponding_Column" to a factor, maintaining the order from the data frame
+filtered_data$Corresponding_Column <- factor(filtered_data$Corresponding_Column, levels = unique(filtered_data$Corresponding_Column))
+
+# Convert "CO_Type" to a factor, maintaining the original order
+filtered_data$CO_Type <- factor(filtered_data$CO_Type, levels = unique(filtered_data$CO_Type))
+
+# Create a bar plot of the data
+p <- ggplot(filtered_data, aes(x = CO_Type, y = Positive_Percent, fill = Corresponding_Column)) +
+  geom_bar(stat = "identity", position = "dodge") +  # Set bar position to dodge for side-by-side bars
+  scale_fill_brewer(palette = "Set2") +  # Use a color palette from RColorBrewer
+  labs(x = NULL, y = "PA numbers(%)") +  # Remove x-axis title and set y-axis label
+  guides(fill = FALSE) +  # Remove the legend
+  guides(fill = guide_legend(title = NULL)) +  # Remove legend title
+  ylim(0, 100) +  # Set the y-axis range from 0 to 100
+  theme_minimal() +  # Use a minimal theme for the plot
+  theme(
+    axis.text.x = element_text(family = "Times New Roman", face = "bold", size = 8, hjust = 0.5, margin = margin(t = 0.1)),  # Adjust x-axis label alignment
+    axis.text.y = element_text(family = "Times New Roman", face = "bold", size = 8, margin = margin(t = 0.1)),
+    axis.title.y = element_text(family = "Times New Roman", face = "bold", size = 8), 
+    axis.title.x = element_text(family = "Times New Roman", face = "bold", size = 8), 
+    legend.text = element_text(family = "Times New Roman", face = "bold", size = 8),  # Set legend text font
+    legend.position = "none",  # Remove the legend
+    text = element_text(family = "Times New Roman", face = "bold"),  # Set all text to Times New Roman bold
+    panel.border = element_rect(color = "black", fill = NA, size = 0.1),  # Add a border to the plot
+    panel.grid.major = element_blank(),  # Remove major grid lines
+    panel.grid.minor = element_blank()   # Remove minor grid lines
+  )
+
+# Print the plot
+print(p)
+
+# Save the plot as a PNG image with specified dimensions and resolution
+ggsave("PR_G.png", plot = p, width = 1, height = 1.8, dpi = 300, bg = "white")  # Adjust width and height as needed
