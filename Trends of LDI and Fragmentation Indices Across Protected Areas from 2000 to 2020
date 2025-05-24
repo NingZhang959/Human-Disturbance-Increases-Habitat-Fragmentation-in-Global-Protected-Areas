@@ -1,76 +1,60 @@
-# Set working directory and read data
-setwd("E:\\World_PA\\图表new\\which buffer")
-data <- read.csv("AD.csv")
+# Load data
+df <- read.csv("E:/World_PA/图表new/LDI-PA/pca/Landscape_CV.csv")
 
-# Filter the data where the 'result' column has value 9
-filtered_data <- data %>% filter(result == 9)
-
-# Reshape the data into long format
-long_data <- filtered_data %>%
-  pivot_longer(
-    cols = starts_with("buffer"),  # Select all columns starting with "buffer"
-    names_to = "Year",             # Extract the year part from column names
-    names_prefix = "buffer",      # Remove the prefix "buffer"
-    values_to = "LDI"             # Store the values as LDI
-  ) %>%
-  pivot_longer(
-    cols = starts_with("AD"),      # Select all columns starting with "AD"
-    names_to = "Year_AD",          # Extract the year part for AD
-    names_prefix = "AD",           # Remove the prefix "AD"
-    values_to = "AD"               # Store the values as AD
-  ) %>%
-  mutate(Year = as.numeric(Year)) %>%       # Convert 'Year' column to numeric
-  filter(as.numeric(Year_AD) == Year) %>%   # Keep rows where the years match
-  select(-Year_AD)                        # Remove the temporary 'Year_AD' column
-
-# Preprocess AD and LDI values
-long_data <- long_data %>%
-  mutate(
-    AD = log(AD + 1),    
-    AD = (AD - min(AD)) / (max(AD) - min(AD)),  # Normalize AD using log transformation and Min-Max scaling
-    LDI = (LDI - min(LDI)) / (max(LDI) - min(LDI))  # Normalize LDI using Min-Max scaling
-  )
-
-# Get the list of unique continents for grouping
-unique_continents <- unique(long_data$CONTINENT)
-
-# Create a list to store plots for each continent
-plot_list <- list()
-
-# Loop through each continent to perform regression analysis and plotting
-for (continent in unique_continents) {
+# Define classification function
+classify_by_cv <- function(df, pc1_cv_col, buffer_cv_col, pc1_change_col, buffer_change_col, buffer_name) {
   
-  # Filter data for the current continent
-  continent_data <- long_data %>% filter(CONTINENT == continent)
+  # Initialize output columns
+  df[[paste0(buffer_name, "_pc1_cv_q")]] <- NA
+  df[[paste0(buffer_name, "_buffer_cv_q")]] <- NA
+  df[[paste0(buffer_name, "_cv_class")]] <- NA
   
-  # Create scatter plot with regression lines for the current continent, color-coded by 'FID_1'
-  plot <- ggplot(continent_data, aes(x = LDI, y = AD, color = as.factor(FID_1))) +
-    geom_point(alpha = 1, size = 1) +               # Scatter plot of points
-    geom_smooth(method = "lm", se = FALSE, size = 0.8) +  # Add regression line without confidence interval
-    labs(x = "LDI", y = "H_AD") +  # Set axis labels
-    theme_minimal() +
-    theme(
-      axis.title = element_text(size = 12, family = "Arial", face = "bold"),   
-      axis.title.y = element_text(size = 12, family = "Arial", face = "bold"),   # Y-axis title
-      axis.text.x = element_text(size = 12, family = "Arial", face = "bold"),     # X-axis text
-      axis.text.y = element_text(size = 12, family = "Arial", face = "bold"),     # Y-axis text
-      plot.title = element_text(hjust = 0.5),  # Center the title
-      legend.position = "none",               # Remove the legend
-      panel.border = element_rect(color = "black", fill = NA, size = 0.5), # Add border around the plot
-      panel.grid.major = element_blank(),     # Remove major grid lines
-      panel.grid.minor = element_blank()      # Remove minor grid lines
-    ) +
-    scale_color_manual(values = rainbow(length(unique(continent_data$FID_1)))) +  # Assign unique colors for each 'FID_1'
-    annotate("text", x = Inf, y = Inf, label = continent, hjust = 1.1, vjust = 1, 
-             family = "Arial", face = "bold", size = 5)  # Annotate the continent name in the top-right corner
+  # Filter condition: PC1 increased, buffer increased
+  cond <- df[[pc1_change_col]] > 0 & df[[buffer_change_col]] > 0
+  cond[is.na(cond)] <- FALSE
+  sub_df <- df[cond, ]
   
-  # Add the plot for the current continent to the plot list
-  plot_list[[continent]] <- plot
+  if (nrow(sub_df) > 0) {
+    # Compute quantiles
+    q_pc1 <- quantile(sub_df[[pc1_cv_col]], probs = c(1/3, 2/3), na.rm = TRUE)
+    q_buffer <- quantile(sub_df[[buffer_cv_col]], probs = c(1/3, 2/3), na.rm = TRUE)
+    
+    # Group into quantile levels (from low to high → 1, 2, 3)
+    pc1_cv_grp <- cut(df[[pc1_cv_col]], breaks = c(-Inf, q_pc1[1], q_pc1[2], Inf), labels = 1:3, include.lowest = TRUE)
+    buffer_cv_grp <- cut(df[[buffer_cv_col]], breaks = c(-Inf, q_buffer[1], q_buffer[2], Inf), labels = 1:3, include.lowest = TRUE)
+    
+    # Save quantile results
+    df[[paste0(buffer_name, "_pc1_cv_q")]][cond] <- pc1_cv_grp[cond]
+    df[[paste0(buffer_name, "_buffer_cv_q")]][cond] <- buffer_cv_grp[cond]
+    
+    # Build classification matrix
+    for (i in which(cond)) {
+      pc1_q <- as.integer(pc1_cv_grp[i])
+      buffer_q <- as.integer(buffer_cv_grp[i])
+      if (!is.na(pc1_q) && !is.na(buffer_q)) {
+        df[[paste0(buffer_name, "_cv_class")]][i] <- (pc1_q - 1) * 3 + buffer_q
+      }
+    }
+  }
+  
+  return(df)
 }
 
-# Combine all plots into a single row using patchwork
-combined_plot <- wrap_plots(plot_list, ncol = length(unique_continents))
-print(combined_plot)
+# Apply to buffer1 ~ buffer5
+for (i in 1:5) {
+  df <- classify_by_cv(
+    df,
+    pc1_cv_col = "PC1_cv",
+    buffer_cv_col = paste0("buffer", i, "_cv"),
+    pc1_change_col = "PC1_2020_2000",
+    buffer_change_col = paste0("buffer", i, "_2020_2000"),
+    buffer_name = paste0("buffer", i)
+  )
+}
 
-# Save the combined plot to a file
-ggsave(filename = "Combined_Continents_Plot_AD.png", plot = combined_plot, width = 18, height = 3)
+# Select output columns
+cols_out <- c("FID", grep("cv_class$|cv_q$", names(df), value = TRUE))
+result <- df[, cols_out]
+
+# Write output file
+write.csv(result, "E:/World_PA/图表new/LDI-PA/pca/classified_buffer_Landscape.csv", row.names = FALSE)
