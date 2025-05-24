@@ -1,85 +1,112 @@
-# Read the data from the specified CSV file
-data <- read_csv("data_with_results.csv")  # Please replace with your CSV file path
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(ggpubr)
 
-# Convert the BIOME_NAME and result columns to factors, maintaining the original order
-# Define custom order for BIOME_NAME
-biome_order <- c("BFT", "DXS", "FGS", "MFWS", "MG", "MGS", "TBMF", "TCF", "TGSS", "TSCF", "TSDBF", "TSGSS", "TSMBF", "TD")
+# Read in data
+df <- read.csv("E:/World_PA/图表new/LDI-PA/pca/buffer.csv")
 
-# Set the BIOME_NAME column as a factor with the custom order
-data$BIOME_NAME <- factor(data$BIOME_NAME, levels = biome_order)
-
-# Sort the data by BIOME_NAME
-data <- data[order(data$BIOME_NAME), ]
-
-# Summarize the data: count the number of occurrences for each CONTINENT and result combination
-summary_table <- data %>%
-  group_by(CONTINENT, result) %>%
-  summarise(count = n()) %>%
-  ungroup()
-
-# Calculate the total count for each continent
-total_counts <- summary_table %>%
-  group_by(CONTINENT) %>%
-  summarise(total = sum(count))
-
-# Calculate the percentage for each continent and result combination
-summary_table <- summary_table %>%
-  left_join(total_counts, by = "CONTINENT") %>%
-  mutate(percent = count / total * 100)
-
-# Summarize the data for all results without continent grouping, count the occurrences of each result
-summary_table <- data %>%
-  group_by(result) %>%
-  summarise(count = n()) %>%
-  ungroup()
-
-# Calculate the total count for all results
-total_count <- sum(summary_table$count)
-
-# Calculate the percentage for each result
-summary_table <- summary_table %>%
-  mutate(percent = count / total_count * 100)
-
-# Print the summary table
-print(summary_table)
-
-# Define custom colors (using RGB and HSV models)
-custom_colors <- c(
-  rgb(38, 115, 0, maxColorValue = 255),                    # Color 1: RGB
-  hsv(h = 86/360, s = 1, v = 0.77),                        # Color 2: HSV
-  hsv(h = 73/360, s = 1, v = 0.88),                        # Color 3: HSV
-  hsv(h = 60/360, s = 1, v = 1),                           # Color 4: HSV
-  hsv(h = 40/360, s = 1, v = 1),                           # Color 5: HSV
-  hsv(h = 20/360, s = 1, v = 1),                           # Color 6: HSV
-  hsv(h = 0/360, s = 1, v = 1),                            # Color 7: HSV
-  hsv(h = 284/360, s = 1, v = 0.84),                       # Color 8: HSV
-  hsv(h = 240/360, s = 1, v = 1)                           # Color 9: HSV
-)
-
-# Create a stacked bar plot, removing the legend
-ggplot(summary_table, aes(x = BIOME_NAME, y = percent, fill = as.factor(result))) +
-  geom_bar(stat = "identity", width = 0.7) +  # Use bars to represent the data
-  scale_fill_manual(values = custom_colors) +  # Apply custom colors to the bars
-  labs(
-    x = "Biome",  # Label for the x-axis
-    y = "LDI and PD (%)"  # Label for the y-axis
-  ) +
-  theme_minimal() +  # Use a minimal theme for the plot
-  theme(
-    text = element_text(size = 8, face = "bold", family = "Times New Roman"),  # Set font for all text
-    axis.title = element_text(size = 8, face = "bold", family = "Times New Roman"),  # Axis titles in bold
-    axis.title.y = element_text(size = 8, face = "bold", family = "Times New Roman"),  # Y-axis title in bold
-    axis.text.x = element_text(size = 8, face = "bold", angle = 45, family = "Times New Roman"),  # X-axis labels with rotated angle
-    axis.text.y = element_text(size = 8, face = "bold", family = "Times New Roman"),  # Y-axis labels in bold
-    legend.position = "none"  # Remove the legend from the plot
+# Step 1: Convert to long format
+df_long <- df %>%
+  pivot_longer(cols = starts_with("buffer"), names_to = "Buffer_Year", values_to = "Value") %>%
+  mutate(
+    Buffer = sub("_\\d+_\\d+$", "", Buffer_Year),
+    Period = sub("buffer\\d+_", "", Buffer_Year),
+    Change = case_when(
+      Value > 0 ~ "Increase",
+      Value == 0 ~ "No Change",
+      Value < 0 ~ "Decrease"
+    )
   )
 
-# Save the plot as a PNG image with specified width, height, and resolution
-ggsave(filename = "biome_PD.png", 
-       plot = last_plot(),  # Save the most recent plot
-       width = 4,           # Adjust the image width (in inches)
-       height = 2,          # Adjust the image height (in inches)
-       dpi = 300,           # Set the resolution to 300 dpi
-       units = "in",        # Units for width and height (in inches)
-       bg = "white"         # Set background color to white
+# Step 2: Multi-level summary (Global, Continent, Biome)
+global_summary <- df_long %>%
+  mutate(Group = "Global") %>%
+  group_by(Group, Period, Buffer, Change) %>%
+  summarise(N = n(), .groups = "drop") %>%
+  group_by(Group, Period, Buffer) %>%
+  mutate(Proportion = N / sum(N))
+
+continent_summary <- df_long %>%
+  filter(CONTINENT != "ALL") %>%
+  mutate(Group = CONTINENT) %>%
+  group_by(Group, Period, Buffer, Change) %>%
+  summarise(N = n(), .groups = "drop") %>%
+  group_by(Group, Period, Buffer) %>%
+  mutate(Proportion = N / sum(N))
+
+biome_summary <- df_long %>%
+  filter(BIOME_NAME != "ALL") %>%
+  mutate(Group = BIOME_NAME) %>%
+  group_by(Group, Period, Buffer, Change) %>%
+  summarise(N = n(), .groups = "drop") %>%
+  group_by(Group, Period, Buffer) %>%
+  mutate(Proportion = N / sum(N))
+
+df_summary <- bind_rows(global_summary, continent_summary, biome_summary)
+
+# Step 3: Set factor levels
+df_summary$Buffer <- factor(df_summary$Buffer, levels = paste0("buffer", 1:5), labels = c("1km", "2km", "3km", "4km", "5km"))
+df_summary$Change <- factor(df_summary$Change, levels = c("Decrease", "No Change", "Increase"))
+
+ordered_periods <- c("2005_2000", "2010_2005", "2015_2010", "2020_2015", "2020_2000")
+pretty_labels <- c("00–05", "05–10", "10–15", "15–20", "00–20")
+df_summary$Period <- factor(df_summary$Period, levels = ordered_periods, labels = pretty_labels)
+
+continents <- c("Africa", "Asia", "Europe", "North America", "Oceania", "South America")
+biomes <- setdiff(unique(df_summary$Group), c("Global", continents))
+group_levels <- c("Global", continents, sort(biomes))
+df_summary$Group <- factor(df_summary$Group, levels = group_levels)
+
+# Step 4: Set color scheme and plot theme
+nc_colors <- c("Decrease" = "#D73027", "No Change" = "#BDBDBD", "Increase" = "#4575B4")
+
+custom_theme <- theme_minimal(base_family = "Arial", base_size = 20) +
+  theme(
+    axis.text.x  = element_text(face = "bold", size = 20, hjust = 0.5),  # X-axis tick labels
+    axis.text.y  = element_text(face = "bold", size = 20),               # Y-axis tick labels
+    axis.title.x = element_text(face = "bold", size = 20),               # X-axis title
+    axis.title.y = element_text(face = "bold", size = 20),               # Y-axis title
+    legend.title = element_text(face = "bold", size = 20),               # Legend title
+    legend.text  = element_text(face = "bold", size = 20),               # Legend labels
+    strip.text   = element_text(face = "bold", size = 20),               # Facet titles
+    panel.spacing = unit(1.2, "lines"),                                  # Spacing between facets
+    legend.position = "bottom"
+  )
+
+# Step 5: Output plots by time period
+dir.create("fragmentation_by_period", showWarnings = FALSE)
+
+# Mapping for pretty period labels
+period_title_map <- c(
+  "00–05" = "2000–2005",
+  "05–10" = "2005–2010",
+  "10–15" = "2010–2015",
+  "15–20" = "2015–2020",
+  "00–20" = "2000–2020"
 )
+
+for (period_label in levels(df_summary$Period)) {
+  df_plot <- df_summary %>% filter(Period == period_label)
+  
+  p <- ggplot(df_plot, aes(x = Buffer, y = Proportion, fill = Change)) +
+    geom_bar(stat = "identity", position = "fill", width = 0.8) +
+    scale_fill_manual(values = nc_colors) +
+    scale_y_continuous(labels = scales::percent, expand = c(0, 0)) +
+    labs(
+      title = paste("LDI Change", period_title_map[period_label]),
+      x = "Distance from PA boundary",
+      y = "Proportion",
+      fill = "Change"
+    ) +
+    facet_wrap(~ Group, ncol = 3) +
+    custom_theme
+  
+  ggsave(
+    filename = paste0("fragmentation_by_period/LDI_", period_label, ".jpg"),
+    plot = p,
+    width = 18,
+    height = 22,
+    dpi = 300
+  )
+}
